@@ -396,7 +396,7 @@ __global__ void preprocessCUDA(
 }
 
 // Backward version of the rendering procedure.
-template <uint32_t C>
+template <uint32_t C, uint32_t F>
 __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
 renderCUDA(
 	const uint2* __restrict__ ranges,
@@ -406,20 +406,24 @@ renderCUDA(
 	const float2* __restrict__ points_xy_image,
 	const float4* __restrict__ conic_opacity,
 	const float* __restrict__ colors,
+	const float* __restrict__ language_feature,
 	const float* __restrict__ final_Ts,
 	const uint32_t* __restrict__ n_contrib,
 	const float* __restrict__ dL_dpixels,
+	const float* __restrict__ dL_dpixels_F,
 	float3* __restrict__ dL_dmean2D,
 	float4* __restrict__ dL_dconic2D,
 	float* __restrict__ dL_dopacity,
-	float* __restrict__ dL_dcolors)
+	float* __restrict__ dL_dcolors,
+	float* __restrict__ dL_dlanguage_feature,
+	const int* __restrict__ main_contributor_ids)
 {
 	// We rasterize again. Compute necessary block info.
 	auto block = cg::this_thread_block();
 	const uint32_t horizontal_blocks = (W + BLOCK_X - 1) / BLOCK_X;
-	const uint2 pix_min = { block.group_index().x * BLOCK_X, block.group_index().y * BLOCK_Y };
+	const uint2 pix_min = { block.group_index().x * BLOCK_X, block.group_index().y * BLOCK_Y }; // block对应pixel范围
 	const uint2 pix_max = { min(pix_min.x + BLOCK_X, W), min(pix_min.y + BLOCK_Y , H) };
-	const uint2 pix = { pix_min.x + block.thread_index().x, pix_min.y + block.thread_index().y };
+	const uint2 pix = { pix_min.x + block.thread_index().x, pix_min.y + block.thread_index().y }; // thread对应pixel
 	const uint32_t pix_id = W * pix.y + pix.x;
 	const float2 pixf = { (float)pix.x, (float)pix.y };
 
@@ -435,6 +439,8 @@ renderCUDA(
 	__shared__ float2 collected_xy[BLOCK_SIZE];
 	__shared__ float4 collected_conic_opacity[BLOCK_SIZE];
 	__shared__ float collected_colors[C * BLOCK_SIZE];
+	__shared__ float collected_feature[F * BLOCK_SIZE];
+
 
 	// In the forward, we stored the final value for T, the
 	// product of all (1 - alpha) factors. 
@@ -443,17 +449,25 @@ renderCUDA(
 
 	// We start from the back. The ID of the last contributing
 	// Gaussian is known from each pixel from the forward.
-	uint32_t contributor = toDo;
-	const int last_contributor = inside ? n_contrib[pix_id] : 0;
+	uint32_t contributor = toDo; // 倒序遍历
+	const int last_contributor = inside ? n_contrib[pix_id] : 0; // 从最后贡献的gaussian开始backward
 
 	float accum_rec[C] = { 0 };
 	float dL_dpixel[C];
 	if (inside)
 		for (int i = 0; i < C; i++)
-			dL_dpixel[i] = dL_dpixels[i * H * W + pix_id];
+			dL_dpixel[i] = dL_dpixels[i * H * W + pix_id]; // 获取当前thread对应像素点上的梯度
 
 	float last_alpha = 0;
 	float last_color[C] = { 0 };
+
+	float accum_rec_F[F] = {0};
+	float dL_dpixel_F[F] = {0};
+	float last_language_feature[F] = {0};
+
+	if (inside)
+		for (int i = 0; i < F; i++)
+			dL_dpixel_F[i] = dL_dpixels_F[i * H * W + pix_id];
 
 	// Gradient of pixel coordinate w.r.t. normalized 
 	// screen-space viewport corrdinates (-1 to 1)
@@ -469,12 +483,14 @@ renderCUDA(
 		const int progress = i * BLOCK_SIZE + block.thread_rank();
 		if (range.x + progress < range.y)
 		{
-			const int coll_id = point_list[range.y - progress - 1];
+			const int coll_id = point_list[range.y - progress - 1]; // 倒序遍历
 			collected_id[block.thread_rank()] = coll_id;
 			collected_xy[block.thread_rank()] = points_xy_image[coll_id];
 			collected_conic_opacity[block.thread_rank()] = conic_opacity[coll_id];
 			for (int i = 0; i < C; i++)
 				collected_colors[i * BLOCK_SIZE + block.thread_rank()] = colors[coll_id * C + i];
+			for (int i = 0; i < F; i++)
+				collected_feature[i * BLOCK_SIZE + block.thread_rank()] = language_feature[coll_id * F + i];
 		}
 		block.sync();
 
@@ -484,7 +500,7 @@ renderCUDA(
 			// Keep track of current Gaussian ID. Skip, if this one
 			// is behind the last contributor for this pixel.
 			contributor--;
-			if (contributor >= last_contributor)
+			if (contributor >= last_contributor) // 因为可能forward过程中透过率达到阈值而提前结束？
 				continue;
 
 			// Compute blending values, as before.
@@ -522,6 +538,18 @@ renderCUDA(
 				// many that were affected by this Gaussian.
 				atomicAdd(&(dL_dcolors[global_id * C + ch]), dchannel_dcolor * dL_dchannel);
 			}
+
+			if(main_contributor_ids[pix_id] == global_id)
+			{
+			    for (int ch = 0; ch < F; ch++)
+				{
+					const float f = collected_feature[ch * BLOCK_SIZE + j];
+
+					const float dL_dchannel_F = dL_dpixel_F[ch];
+					atomicAdd(&(dL_dlanguage_feature[global_id * F + ch]), dchannel_dcolor * dL_dchannel_F);
+			    }
+			}
+
 			dL_dalpha *= T;
 			// Update last alpha (to be used in the next iteration)
 			last_alpha = alpha;
@@ -630,15 +658,19 @@ void BACKWARD::render(
 	const float2* means2D,
 	const float4* conic_opacity,
 	const float* colors,
+	const float* language_feature,
 	const float* final_Ts,
 	const uint32_t* n_contrib,
 	const float* dL_dpixels,
+	const float* dL_dpixels_F,
 	float3* dL_dmean2D,
 	float4* dL_dconic2D,
 	float* dL_dopacity,
-	float* dL_dcolors)
+	float* dL_dcolors,
+	float* dL_dlanguage_feature,
+	const int* main_contributor_ids)
 {
-	renderCUDA<NUM_CHANNELS> << <grid, block >> >(
+	renderCUDA<NUM_CHANNELS, NUM_CHANNELS_language_feature> << <grid, block >> >(
 		ranges,
 		point_list,
 		W, H,
@@ -646,12 +678,16 @@ void BACKWARD::render(
 		means2D,
 		conic_opacity,
 		colors,
+		language_feature,
 		final_Ts,
 		n_contrib,
 		dL_dpixels,
+		dL_dpixels_F,
 		dL_dmean2D,
 		dL_dconic2D,
 		dL_dopacity,
-		dL_dcolors
+		dL_dcolors,
+		dL_dlanguage_feature,
+		main_contributor_ids
 		);
 }
