@@ -258,7 +258,8 @@ __global__ void preprocessCUDA(int P, int D, int M,
 // Main rasterization method. Collaboratively works on one tile per
 // block, each thread treats one pixel. Alternates between fetching 
 // and rasterizing data.
-template <uint32_t CHANNELS, uint32_t CHANNELS_language_feature>
+// 模板传入rgb维度和sfm_origin维度
+template <uint32_t CHANNELS, uint32_t CHANNELS_SFM_ORIGIN>
 __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
 renderCUDA(
 	const uint2* __restrict__ ranges,
@@ -266,13 +267,15 @@ renderCUDA(
 	int W, int H,
 	const float2* __restrict__ points_xy_image,
 	const float* __restrict__ features,
-	const float* __restrict__ language_feature,
+	// const float* __restrict__ language_feature,
+	const int* __restrict__ sfm_origin,
 	const float4* __restrict__ conic_opacity,
 	float* __restrict__ final_T,
 	uint32_t* __restrict__ n_contrib,
 	const float* __restrict__ bg_color,
 	float* __restrict__ out_color,
-	float* __restrict__ out_language_feature,
+	// float* __restrict__ out_language_feature,
+	int* __restrict__ out_sfm_origin,
 	int* __restrict__ main_contributor_ids)
 {
 	// Identify current tile and associated min/max pixel range.
@@ -308,7 +311,8 @@ renderCUDA(
 	//TODO: add feature render
     float max_alpha = 0.0f;
 	float C[CHANNELS] = { 0 }; // 最终颜色
-	float F[CHANNELS_language_feature] = { 0 };
+	// float F[CHANNELS_language_feature] = { 0 };
+	int F[CHANNELS_SFM_ORIGIN] = {-1};
 
 	// Iterate over batches until all done or range is complete
 	for (int i = 0; i < rounds; i++, toDo -= BLOCK_SIZE)
@@ -371,9 +375,11 @@ renderCUDA(
 
 			if(feature_output_flag)
 			{
-				for (int ch = 0; ch < CHANNELS_language_feature; ch++)
-				    F[ch] = language_feature[collected_id[j] * CHANNELS_language_feature + ch];
-					// F[ch] += language_feature[collected_id[j] * CHANNELS_language_feature + ch] * alpha * T;
+// 				for (int ch = 0; ch < CHANNELS_language_feature; ch++)
+// 				    F[ch] = language_feature[collected_id[j] * CHANNELS_language_feature + ch];
+                for (int ch = 0; ch < CHANNELS_SFM_ORIGIN; ch++)
+ 				    F[ch] = sfm_origin[collected_id[j] * CHANNELS_SFM_ORIGIN + ch];
+				// F[0] = sfm_origin[collected_id[j]];
 				feature_output_flag = false;
 			}
 
@@ -394,8 +400,11 @@ renderCUDA(
 		for (int ch = 0; ch < CHANNELS; ch++)
 			out_color[ch * H * W + pix_id] = C[ch] + T * bg_color[ch]; // 写颜色
 
-		for (int ch = 0; ch < CHANNELS_language_feature; ch++)
-				out_language_feature[ch * H * W + pix_id] = F[ch]; //bg_color ???
+// 		for (int ch = 0; ch < CHANNELS_language_feature; ch++)
+// 				out_language_feature[ch * H * W + pix_id] = F[ch]; //bg_color ???
+		for (int ch = 0; ch < CHANNELS_SFM_ORIGIN; ch++)
+				out_sfm_origin[ch * H * W + pix_id] = F[ch]; //bg_color ???
+        // out_sfm_origin[pix_id] = F[0];
 	}
 }
 
@@ -407,28 +416,32 @@ void FORWARD::render(
 	int W, int H,
 	const float2* means2D,
 	const float* colors,
-    const float* language_feature,
+    // const float* language_feature,
+    const int* sfm_origin,
 	const float4* conic_opacity,
 	float* final_T,
 	uint32_t* n_contrib,
 	const float* bg_color,
 	float* out_color,
-	float* out_language_feature,
+	// float* out_language_feature,
+	int* out_sfm_origin,
 	int* main_contributor_ids)
 {
-	renderCUDA<NUM_CHANNELS, NUM_CHANNELS_language_feature> << <grid, block >> > (
+	renderCUDA<NUM_CHANNELS, NUM_CHANNELS_SFM_ORIGIN> << <grid, block >> > (
 		ranges,
 		point_list,
 		W, H,
 		means2D,
 		colors,
-		language_feature,
+		// language_feature,
+		sfm_origin,
 		conic_opacity,
 		final_T,
 		n_contrib,
 		bg_color,
 		out_color,
-		out_language_feature,
+		// out_language_feature,
+		out_sfm_origin,
 		main_contributor_ids);
 }
 

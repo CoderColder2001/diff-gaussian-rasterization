@@ -37,7 +37,8 @@ RasterizeGaussiansCUDA(
 	const torch::Tensor& background,
 	const torch::Tensor& means3D,
     const torch::Tensor& colors,
-    const torch::Tensor& language_feature,
+    // const torch::Tensor& language_feature,
+    const torch::Tensor& sfm_origin,
     const torch::Tensor& opacity,
 	const torch::Tensor& scales,
 	const torch::Tensor& rotations,
@@ -67,8 +68,10 @@ RasterizeGaussiansCUDA(
   auto float_opts = means3D.options().dtype(torch::kFloat32);
 
   torch::Tensor out_color = torch::full({NUM_CHANNELS, H, W}, 0.0, float_opts);
-  torch::Tensor out_language_feature;
-  out_language_feature = torch::full({NUM_CHANNELS_language_feature, H, W}, 0.0, float_opts);
+  // torch::Tensor out_language_feature;
+  torch::Tensor out_sfm_origin;
+  out_sfm_origin = torch::full({NUM_CHANNELS_SFM_ORIGIN, H, W}, 0, int_opts);
+  // out_language_feature = torch::full({NUM_CHANNELS_language_feature, H, W}, 0.0, float_opts);
 
   torch::Tensor main_contributor_ids = torch::full({1, H, W}, 0, int_opts); // main_contributor_ids
 
@@ -102,7 +105,8 @@ RasterizeGaussiansCUDA(
 		means3D.contiguous().data<float>(),
 		sh.contiguous().data_ptr<float>(),
 		colors.contiguous().data<float>(),
-		language_feature.contiguous().data<float>(),
+		// language_feature.contiguous().data<float>(),
+		sfm_origin.contiguous().data<int>(),
 		opacity.contiguous().data<float>(), 
 		scales.contiguous().data_ptr<float>(),
 		scale_modifier,
@@ -115,12 +119,13 @@ RasterizeGaussiansCUDA(
 		tan_fovy,
 		prefiltered,
 		out_color.contiguous().data<float>(),
-		out_language_feature.contiguous().data<float>(),
+		// out_language_feature.contiguous().data<float>(),
+		out_sfm_origin.contiguous().data<int>(),
 		main_contributor_ids.contiguous().data<int>(),
 		radii.contiguous().data<int>(),
 		debug);
   }
-  return std::make_tuple(rendered, out_color, out_language_feature, radii, geomBuffer, binningBuffer, imgBuffer, main_contributor_ids);
+  return std::make_tuple(rendered, out_color, out_sfm_origin, radii, geomBuffer, binningBuffer, imgBuffer, main_contributor_ids);
 }
 
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
@@ -129,7 +134,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	const torch::Tensor& means3D,
 	const torch::Tensor& radii,
     const torch::Tensor& colors,
-    const torch::Tensor& language_feature,
+    // const torch::Tensor& language_feature,
+    const torch::Tensor& sfm_origin,
 	const torch::Tensor& scales,
 	const torch::Tensor& rotations,
 	const float scale_modifier,
@@ -139,7 +145,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	const float tan_fovx,
 	const float tan_fovy,
     const torch::Tensor& dL_dout_color,
-    const torch::Tensor& dL_dout_language_feature,
+    const torch::Tensor& dL_dout_language_feature, // todo
 	const torch::Tensor& sh,
 	const int degree,
 	const torch::Tensor& campos,
@@ -164,6 +170,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
   torch::Tensor dL_dmeans2D = torch::zeros({P, 3}, means3D.options());
   torch::Tensor dL_dcolors = torch::zeros({P, NUM_CHANNELS}, means3D.options());
 
+  // todo?
   torch::Tensor dL_dlanguage_feature;
   dL_dlanguage_feature = torch::zeros({P, NUM_CHANNELS_language_feature}, means3D.options());
 
@@ -182,7 +189,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	  means3D.contiguous().data<float>(),
 	  sh.contiguous().data<float>(),
 	  colors.contiguous().data<float>(),
-	  language_feature.contiguous().data<float>(),
+	  // language_feature.contiguous().data<float>(),
+	  sfm_origin.contiguous().data<int>(),
 	  scales.data_ptr<float>(),
 	  scale_modifier,
 	  rotations.data_ptr<float>(),

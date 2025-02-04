@@ -55,13 +55,15 @@ namespace FORWARD
 		int W, int H,
 		const float2* points_xy_image,
 		const float* features,
-		const float* language_feature,
+		// const float* language_feature,
+		const int* sfm_origin,
 		const float4* conic_opacity,
 		float* final_T,
 		uint32_t* n_contrib,
 		const float* bg_color,
 		float* out_color,
-		float* out_language_feature,
+		// float* out_language_feature,
+		int* out_sfm_origin,
 		int* main_contributor_ids);
 }
 

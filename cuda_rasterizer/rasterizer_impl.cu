@@ -205,7 +205,8 @@ int CudaRasterizer::Rasterizer::forward(
 	const float* means3D,
 	const float* shs,
 	const float* colors_precomp,
-	const float* language_feature_precomp, // 增加了参数
+	// const float* language_feature_precomp, // 增加了参数
+	const int* sfm_origin_precomp,
 	const float* opacities,
 	const float* scales,
 	const float scale_modifier,
@@ -217,7 +218,8 @@ int CudaRasterizer::Rasterizer::forward(
 	const float tan_fovx, float tan_fovy,
 	const bool prefiltered,
 	float* out_color,
-	float* out_language_feature,
+	// float* out_language_feature,
+	int* out_sfm_origin,
 	int* main_contributor_ids,
 	int* radii,
 	bool debug)
@@ -322,7 +324,8 @@ int CudaRasterizer::Rasterizer::forward(
 
 	// Let each tile blend its range of Gaussians independently in parallel
 	const float* feature_ptr = colors_precomp != nullptr ? colors_precomp : geomState.rgb;
-	const float* language_feature_ptr = language_feature_precomp;
+	// const float* language_feature_ptr = language_feature_precomp;
+	const int* sfm_origin_ptr = sfm_origin_precomp;
 
 	CHECK_CUDA(FORWARD::render(
 		tile_grid, block,
@@ -331,13 +334,15 @@ int CudaRasterizer::Rasterizer::forward(
 		width, height,
 		geomState.means2D,
 		feature_ptr,
-		language_feature_ptr,
+		// language_feature_ptr,
+		sfm_origin_ptr,
 		geomState.conic_opacity,
 		imgState.accum_alpha,
 		imgState.n_contrib,
 		background,
 		out_color,
-		out_language_feature,
+		// out_language_feature,
+		out_sfm_origin,
 		main_contributor_ids), debug)
 
 	return num_rendered;
@@ -352,7 +357,8 @@ void CudaRasterizer::Rasterizer::backward(
 	const float* means3D,
 	const float* shs,
 	const float* colors_precomp,
-	const float* language_feature_precomp,
+	// const float* language_feature_precomp,
+	const int* sfm_origin_precomp,
 	const float* scales,
 	const float scale_modifier,
 	const float* rotations,
@@ -399,7 +405,8 @@ void CudaRasterizer::Rasterizer::backward(
 	// opacity and RGB of Gaussians from per-pixel loss gradients.
 	// If we were given precomputed colors and not SHs, use them.
 	const float* color_ptr = (colors_precomp != nullptr) ? colors_precomp : geomState.rgb;
-	const float* language_feature_ptr = language_feature_precomp;
+	// const float* language_feature_ptr = language_feature_precomp;
+	const int* sfm_origin_ptr = sfm_origin_precomp;
 
 	CHECK_CUDA(BACKWARD::render(
 		tile_grid,
@@ -411,7 +418,8 @@ void CudaRasterizer::Rasterizer::backward(
 		geomState.means2D,
 		geomState.conic_opacity,
 		color_ptr,
-		language_feature_ptr,
+		// language_feature_ptr,
+		sfm_origin_ptr,
 		imgState.accum_alpha,
 		imgState.n_contrib,
 		dL_dpix,
