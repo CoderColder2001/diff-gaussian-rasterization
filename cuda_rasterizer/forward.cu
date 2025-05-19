@@ -274,6 +274,7 @@ renderCUDA(
 	uint32_t* __restrict__ n_contrib,
 	const float* __restrict__ bg_color,
 	float* __restrict__ out_color,
+	float* __restrict__ out_alpha,
 	// float* __restrict__ out_language_feature,
 	int* __restrict__ out_sfm_origin,
 	int* __restrict__ main_contributor_ids)
@@ -311,6 +312,7 @@ renderCUDA(
 	//TODO: add feature render
     float max_alpha = 0.0f;
 	float C[CHANNELS] = { 0 }; // 最终颜色
+	float weight = 0;
 	// float F[CHANNELS_language_feature] = { 0 };
 	int F[CHANNELS_SFM_ORIGIN] = {-1};
 
@@ -373,6 +375,8 @@ renderCUDA(
 			for (int ch = 0; ch < CHANNELS; ch++)
 				C[ch] += features[collected_id[j] * CHANNELS + ch] * alpha * T;
 
+            weight += alpha * T;
+
 			if(feature_output_flag)
 			{
 // 				for (int ch = 0; ch < CHANNELS_language_feature; ch++)
@@ -405,6 +409,8 @@ renderCUDA(
 		for (int ch = 0; ch < CHANNELS_SFM_ORIGIN; ch++)
 				out_sfm_origin[ch * H * W + pix_id] = F[ch]; //bg_color ???
         // out_sfm_origin[pix_id] = F[0];
+
+        out_alpha[pix_id] = weight; //1 - T;
 	}
 }
 
@@ -423,6 +429,7 @@ void FORWARD::render(
 	uint32_t* n_contrib,
 	const float* bg_color,
 	float* out_color,
+	float* out_alpha,
 	// float* out_language_feature,
 	int* out_sfm_origin,
 	int* main_contributor_ids)
@@ -440,6 +447,7 @@ void FORWARD::render(
 		n_contrib,
 		bg_color,
 		out_color,
+		out_alpha,
 		// out_language_feature,
 		out_sfm_origin,
 		main_contributor_ids);

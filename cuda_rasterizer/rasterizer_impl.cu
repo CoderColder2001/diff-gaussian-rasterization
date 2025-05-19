@@ -218,6 +218,7 @@ int CudaRasterizer::Rasterizer::forward(
 	const float tan_fovx, float tan_fovy,
 	const bool prefiltered,
 	float* out_color,
+	float* out_alpha,
 	// float* out_language_feature,
 	int* out_sfm_origin,
 	int* main_contributor_ids,
@@ -341,6 +342,7 @@ int CudaRasterizer::Rasterizer::forward(
 		imgState.n_contrib,
 		background,
 		out_color,
+		out_alpha,
 		// out_language_feature,
 		out_sfm_origin,
 		main_contributor_ids), debug)
